@@ -1,0 +1,186 @@
+name: github-actions-paths-filter-alternative
+# MEMO: Description must be less than 125 characters.
+description: 'A workaround workflow to resolve the incompatibility of `Require status checks to pass` setting when `paths` or `paths-ignore` filter is set.'
+author: 'hakadoriya'
+
+branding:
+  icon: search
+  color: gray-dark
+
+inputs:
+  #
+  # Common
+  #
+  paths:
+    description: 'A list of substrings of file paths to include written in regular expressions (like on.push.paths)'
+    required: false
+    default: ''  # empty string
+  paths-ignore:
+    description: 'A list of substrings of file paths to ignore written in regular expressions (like on.push.paths-ignore)'
+    required: false
+    default: ''  # empty string
+  skip-checkout:
+    description: 'If true, skip the checkout step'
+    required: false
+    default: 'false'
+  debug:
+    description: 'Debug mode'
+    required: false
+    default: 'false'
+  #
+  # Push event
+  # ref. # https://docs.github.com/ja/webhooks/webhook-events-and-payloads#push
+  #
+  before:
+    description: 'The commit SHA before the push (push trigger only)'
+    required: false
+    default: ${{ github.event.before }}
+  after:
+    description: 'The commit SHA after the push (push trigger only)'
+    required: false
+    default: ${{ github.event.after }}
+  #
+  # Pull request event
+  #
+  base-ref:
+    description: 'The base branch of the repository (pull_request trigger only)'
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  head-ref:
+    description: 'The head branch of the pull request (pull_request trigger only)'
+    required: false
+    default: ${{ github.event.pull_request.head.sha }}
+
+outputs:
+  skip:
+    value: ${{ steps.paths-filter.outputs.skip }}
+    description: "If no diff, this value is 'true'. Otherwise, this value is 'false'."
+
+runs:
+  using: composite
+  steps:
+    - if: ${{ inputs.skip-checkout != 'true' }}
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: github-actions-paths-filter-alternative
+      id: paths-filter
+      shell: 'bash'
+      env:
+        LOGSH_COLOR: 'true'
+      run: |
+        # LICENSE: https://github.com/hakadoriya/log.sh/blob/HEAD/LICENSE
+        # Common
+        if [ "${LOGSH_COLOR:-}" ] || [ -t 2 ] ; then LOGSH_COLOR=true; else LOGSH_COLOR=''; fi
+        _logshRFC3339() { date "+%Y-%m-%dT%H:%M:%S%z" | sed "s/\(..\)$/:\1/"; }
+        _logshCmd() { for a in "$@"; do if echo "${a:-}" | grep -Eq "[[:blank:]]"; then printf "'%s' " "${a:-}"; else printf "%s " "${a:-}"; fi; done | sed "s/ $//"; }
+        # Color
+        LogshDefault() { test "  ${LOGSH_LEVEL:-0}" -gt 000 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;35m}  DEFAULT${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshDebug() { test "    ${LOGSH_LEVEL:-0}" -gt 100 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;34m}    DEBUG${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshInfo() { test "     ${LOGSH_LEVEL:-0}" -gt 200 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;32m}     INFO${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshNotice() { test "   ${LOGSH_LEVEL:-0}" -gt 300 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;36m}   NOTICE${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshWarn() { test "     ${LOGSH_LEVEL:-0}" -gt 400 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;33m}     WARN${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshWarning() { test "  ${LOGSH_LEVEL:-0}" -gt 400 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;33m}  WARNING${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshError() { test "    ${LOGSH_LEVEL:-0}" -gt 500 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;31m}    ERROR${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshCritical() { test " ${LOGSH_LEVEL:-0}" -gt 600 || echo "$*" | awk "{print \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;1;31m} CRITICAL${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshAlert() { test "    ${LOGSH_LEVEL:-0}" -gt 700 || echo "$*" | awk "{print   \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;41m}    ALERT${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshEmergency() { test "${LOGSH_LEVEL:-0}" -gt 800 || echo "$*" | awk "{print \"$(_logshRFC3339) [${LOGSH_COLOR:+\\033[0;1;41m}EMERGENCY${LOGSH_COLOR:+\\033[0m}] \"\$0\"\"}" 1>&2; }
+        LogshExec() { LogshInfo "$ $(_logshCmd "$@")" && "$@"; }
+        LogshRun() { _dlm="####R#E#C#D#E#L#I#M#I#T#E#R####" && _all=$({ _out=$("$@") && _rtn=$? || _rtn=$? && printf "\n%s" "${_dlm:?}${_out:-}" && return "${_rtn:-0}"; } 2>&1) && _rtn=$? || _rtn=$? && _dlmno=$(echo "${_all:-}" | sed -n "/${_dlm:?}/=") && _cmd=$(_logshCmd "$@") && _stdout=$(echo "${_all:-}" | tail -n +"${_dlmno:-1}" | sed "s/^${_dlm:?}//") && _stderr=$(echo "${_all:-}" | head -n "${_dlmno:-1}" | grep -v "^${_dlm:?}") && LogshInfo "$ ${_cmd:-}" && LogshInfo "${_stdout:-}" && { [ -z "${_stderr:-}" ] || LogshWarning "${_stderr:?}"; } && return "${_rtn:-0}"; }
+        # export functions for bash
+        # shellcheck disable=SC3045
+        echo "${SHELL-}" | grep -q "/?bash" && export -f _logshRFC3339 _logshCmd LogshDefault LogshDebug LogshInfo LogshWarning LogshError LogshCritical LogshAlert LogshEmergency LogshExec LogshRun || true
+
+        #
+        # inputs
+        #
+        LogshInfo "----------------------------------------------------------------"
+        LogshInfo "github:"
+        LogshInfo "  event_name: ${{ github.event_name }}"
+        LogshInfo "  base_ref: ${{ github.base_ref }}"
+        LogshInfo "  head_ref: ${{ github.head_ref }}"
+        LogshInfo "inputs:"
+        LogshInfo "  before: ${{ inputs.before }}"
+        LogshInfo "  after: ${{ inputs.after }}"
+        LogshInfo "  base-ref: ${{ inputs.base-ref }}"
+        LogshInfo "  head-ref: ${{ inputs.head-ref }}"
+        LogshInfo "----------------------------------------------------------------"
+
+        #
+        # main
+        #
+        if [[ "${{ github.event_name }}" == 'push' ]]; then
+          LogshInfo "${{ github.event_name }} event"
+          before="${{ inputs.before }}"
+          after="${{ inputs.after }}"
+        elif [[ "${{ github.event_name }}" == 'pull_request' ]]; then
+          LogshInfo "${{ github.event_name }} event"
+          before="${{ inputs.base-ref }}"
+          after="${{ inputs.head-ref }}"
+        else
+          LogshInfo "${{ github.event_name }} event. NOT SKIP."
+          exit 0
+        fi
+
+        LogshDebug "Create paths.txt (without comments and empty lines)"
+        (grep -v -e "^[[:space:]]*#" -e "^[[:space:]]*$" <<'EOF' | tee paths.txt) || true
+        ${{ inputs.paths }}
+        EOF
+
+        LogshDebug "Create paths-ignore.txt (without comments and empty lines)"
+        (grep -v -e "^[[:space:]]*#" -e "^[[:space:]]*$" <<'EOF' | tee paths-ignore.txt) || true
+        ${{ inputs.paths-ignore }}
+        EOF
+
+        if ! files_changed=$(git diff --name-only "${before:?}" "${after:?}"); then
+          LogshWarn "Failed to get diff files. FORCE NOT SKIP."
+          exit 0
+        fi
+        LogshDebug "==> files_changed <=="
+        LogshDebug "${files_changed:-(empty)}"
+
+        if [[ -n "${{ inputs.paths }}" ]] && [[ -n "${{ inputs.paths-ignore }}" ]]; then
+          LogshWarn "Both paths and paths-ignore are set. paths takes precedence."
+        fi
+
+        if [[ -n "${{ inputs.paths }}" ]]; then
+          LogshInfo "Apply paths"
+          files_changed=$(echo "${files_changed:?}" | grep -E -f paths.txt) || true
+          LogshDebug "==> files_changed (applied paths) <=="
+          LogshDebug "${files_changed:-(empty)}"
+        elif [[ -n "${{ inputs.paths-ignore }}" ]]; then
+          LogshInfo "Apply paths-ignore"
+          files_changed=$(echo "${files_changed:?}" | grep -Ev -f paths-ignore.txt) || true
+          LogshDebug "==> files_changed (applied paths-ignore) <=="
+          LogshDebug "${files_changed:-(empty)}"
+        else
+          LogshWarn "paths and paths-ignore are not set."
+          files_changed=$(echo "${files_changed:?}")
+        fi
+
+        if [[ -z "${files_changed:-}" ]]; then
+          LogshInfo "Skip the following steps"
+          LogshExec echo "skip=true" >> $GITHUB_OUTPUT
+        else
+          LogshInfo "Continue the following steps"
+          LogshExec echo "skip=false" >> $GITHUB_OUTPUT
+        fi
+    - name: DEBUG
+      if: always() && ${{ inputs.debug == 'true' }}
+      shell: bash
+      run: |
+        cat <<'DEBUG_DOC'
+        == DEBUG =======================================================
+        -- inputs -----------------------------------------------------
+        before: ${{ inputs.before }}
+        after: ${{ inputs.after }}
+        base-ref: ${{ inputs.base-ref }}
+        head-ref: ${{ inputs.head-ref }}
+        paths-ignore: ${{ inputs.paths-ignore }}
+        -- github -----------------------------------------------------
+        github.event_name: ${{ github.event_name }}
+        github.ref: ${{ github.ref }}
+        -- toJSON(github) ----------------------------------------------
+        ${{ toJSON(github) }}
+        ================================================================
+        DEBUG_DOC
