@@ -1,6 +1,6 @@
 name: github-actions-paths-filter-alternative
 # MEMO: Description must be less than 125 characters.
-description: 'A workaround workflow to resolve the incompatibility of `Require status checks to pass` setting when `paths` or `paths-ignore` filter is set.'
+description: 'A workaround workflow to resolve the incompatibility of `Require status checks to pass` setting when `paths` filter is set.'
 author: 'hakadoriya'
 
 branding:
