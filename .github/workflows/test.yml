@@ -28,7 +28,7 @@ jobs:
         id: paths-filter
         with:
           # `before` / `after` are used on a push event, and `base-ref` / `head-ref` on a pull_request event.
-          # Both pairs are given the same commits so that this test is deterministic on either event.
+          # The same commits are given to both pairs, so the assertion does not depend on which event fires.
           before: ${{ env.TEST_BASE_SHA }}
           after: ${{ env.TEST_HEAD_SHA }}
           base-ref: ${{ env.TEST_BASE_SHA }}
