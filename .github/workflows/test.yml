@@ -1,7 +1,10 @@
 name: test
 
 on:
+  # A pull request from a branch of this repository would otherwise run every job twice.
   push:
+    branches:
+      - main
   pull_request:
 
 # Fixed commits used by the test jobs below.
