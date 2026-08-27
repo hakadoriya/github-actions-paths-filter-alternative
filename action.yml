@@ -43,11 +43,11 @@ inputs:
   # Pull request event
   #
   base-ref:
-    description: 'The base branch of the repository (pull_request trigger only)'
+    description: 'The base commit SHA, branch name or tag name (pull_request trigger only)'
     required: false
     default: ${{ github.event.pull_request.base.sha }}
   head-ref:
-    description: 'The head branch of the pull request (pull_request trigger only)'
+    description: 'The head commit SHA, branch name or tag name (pull_request trigger only)'
     required: false
     default: ${{ github.event.pull_request.head.sha }}
 
@@ -62,7 +62,10 @@ runs:
     - if: ${{ inputs.skip-checkout != 'true' }}
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        # `git diff` only needs the trees of the two commits to be compared, so the full history, all branches and all tags are unnecessary.
+        # The commits required for the diff are fetched individually in the next step.
+        # NOTE: Do not set `persist-credentials: false` here, because that fetch reuses the credentials this checkout persists.
+        fetch-depth: 1
     - name: paths-filter-alternative
       id: paths-filter
       shell: 'bash'
@@ -120,6 +123,35 @@ runs:
         else
           LogshInfo "${{ github.event_name }} event. NOT SKIP."
           exit 0
+        fi
+
+        # The checkout step above uses `fetch-depth: 1`, so the commits to be compared are not in the local repository.
+        # Fetch only the two commits `git diff` needs, instead of the full history, all branches and all tags.
+        # If `skip-checkout` is 'true', preparing the git repository is the caller's responsibility, so nothing is fetched here.
+        if [[ "${{ inputs.skip-checkout }}" != 'true' ]]; then
+          # Fetch a ref (a commit SHA, a branch name or a tag name) with depth 1, and print the resolved commit SHA to stdout.
+          # A shallow repository has no remote-tracking ref, so a branch name or a tag name cannot be resolved as is.
+          # FETCH_HEAD is therefore resolved to a commit SHA before it is passed to `git diff`.
+          FetchShallowRef() {
+            local _ref="${1:?}"
+            local _sha
+            # Do not fetch a commit that is already in the local repository (e.g. `after` on a push event).
+            if _sha=$(git rev-parse --verify --quiet "${_ref}^{commit}"); then
+              echo "${_sha}"
+              return 0
+            fi
+            if LogshExec git fetch --no-tags --depth=1 origin "${_ref}" 1>&2; then
+              git rev-parse "FETCH_HEAD^{commit}"
+              return 0
+            fi
+            # An unfetchable ref (e.g. a base commit dropped by a force push, or 0000000000000000000000000000000000000000
+            # sent on a branch creation push) is printed as is, and the `git diff` below falls back to FORCE NOT SKIP.
+            LogshWarn "Failed to fetch: ${_ref}"
+            echo "${_ref}"
+          }
+          before=$(FetchShallowRef "${before:?}")
+          after=$(FetchShallowRef "${after:?}")
+          LogshInfo "Resolved refs: before=${before} after=${after}"
         fi
 
         LogshDebug "Create paths.txt (without comments and empty lines)"
