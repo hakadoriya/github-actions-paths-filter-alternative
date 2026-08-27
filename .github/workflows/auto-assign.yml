@@ -12,6 +12,8 @@ jobs:
     if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      pull-requests: write # required to assign a pull request
     steps:
       - if: ${{ toJSON(github.event.pull_request.assignees) == '[]' }}
         env:
