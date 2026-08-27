@@ -10,7 +10,11 @@ jobs:
     outputs:
       skip: ${{ steps.paths-filter.outputs.skip }}
     steps:
-      - uses: hakadoriya-actions/paths-filter-alternative@develop
+      # This workflow is the CI of this repository, so it runs the action in the working tree.
+      # `uses: ./` requires the repository to be checked out beforehand.
+      # In your own workflow, replace these two steps with `uses: hakadoriya-actions/paths-filter-alternative@v1.0.1`.
+      - uses: actions/checkout@v4
+      - uses: ./
         id: paths-filter
         with:
           paths: |-

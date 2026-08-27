@@ -1,0 +1,173 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+# Fixed commits used by the test jobs below.
+# The diff between TEST_BASE_SHA and TEST_HEAD_SHA consists of exactly these 4 files:
+#   .github/workflows/example.yml
+#   .github/workflows/task-list-checker.yml
+#   README.md
+#   action.yml
+env:
+  TEST_BASE_SHA: 275283b908075102765385a7a4a7f4acbecc5410
+  TEST_HEAD_SHA: d1b27090d1a610f8cdde46d8d937a4a9c9127619
+
+jobs:
+  paths-matched:
+    name: 'paths matched -> skip=false'
+    runs-on: ubuntu-latest
+    steps:
+      # `uses: ./` requires the repository to be checked out beforehand.
+      - uses: actions/checkout@v4
+      - uses: ./
+        id: paths-filter
+        with:
+          # `before` / `after` are used on a push event, and `base-ref` / `head-ref` on a pull_request event.
+          # Both pairs are given the same commits so that this test is deterministic on either event.
+          before: ${{ env.TEST_BASE_SHA }}
+          after: ${{ env.TEST_HEAD_SHA }}
+          base-ref: ${{ env.TEST_BASE_SHA }}
+          head-ref: ${{ env.TEST_HEAD_SHA }}
+          paths: |-
+            ^action\.yml$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'false' || { echo "::error::expected skip='false', actual skip='${ACTUAL}'"; exit 1; }
+
+  paths-not-matched:
+    name: 'paths not matched -> skip=true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        id: paths-filter
+        with:
+          before: ${{ env.TEST_BASE_SHA }}
+          after: ${{ env.TEST_HEAD_SHA }}
+          base-ref: ${{ env.TEST_BASE_SHA }}
+          head-ref: ${{ env.TEST_HEAD_SHA }}
+          paths: |-
+            ^no-such-file$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'true' || { echo "::error::expected skip='true', actual skip='${ACTUAL}'"; exit 1; }
+
+  paths-ignore-matched:
+    name: 'paths-ignore covers every changed file -> skip=true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        id: paths-filter
+        with:
+          before: ${{ env.TEST_BASE_SHA }}
+          after: ${{ env.TEST_HEAD_SHA }}
+          base-ref: ${{ env.TEST_BASE_SHA }}
+          head-ref: ${{ env.TEST_HEAD_SHA }}
+          paths-ignore: |-
+            ^\.github/
+            ^README\.md$
+            ^action\.yml$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'true' || { echo "::error::expected skip='true', actual skip='${ACTUAL}'"; exit 1; }
+
+  ref-by-branch-name:
+    name: 'branch name is resolved on a shallow repository -> skip=true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A shallow repository has no remote-tracking ref, so a branch name is resolved by fetching it.
+      # Comparing a branch with itself yields no diff regardless of where the branch points,
+      # so this job fails only when the branch name cannot be resolved at all.
+      - uses: ./
+        id: paths-filter
+        with:
+          before: main
+          after: main
+          base-ref: main
+          head-ref: main
+          paths: |-
+            ^.*$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'true' || { echo "::error::expected skip='true', actual skip='${ACTUAL}'"; exit 1; }
+
+  ref-by-tag-name:
+    name: 'tag name is resolved on a shallow repository -> skip=false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The diff between the v1.0.0 tag and the v1.0.1 tag contains action.yml.
+      - uses: ./
+        id: paths-filter
+        with:
+          before: v1.0.0
+          after: v1.0.1
+          base-ref: v1.0.0
+          head-ref: v1.0.1
+          paths: |-
+            ^action\.yml$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'false' || { echo "::error::expected skip='false', actual skip='${ACTUAL}'"; exit 1; }
+
+  unfetchable-ref:
+    name: 'unfetchable ref -> job succeeds and skip is not set'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A push that creates a branch sends 0000000000000000000000000000000000000000 as `before`,
+      # and a force push on the base branch drops the base commit. Neither can be fetched.
+      # The action must neither fail the job nor set skip, so that the following jobs run (FORCE NOT SKIP).
+      - uses: ./
+        id: paths-filter
+        with:
+          before: '0000000000000000000000000000000000000000'
+          after: ${{ env.TEST_HEAD_SHA }}
+          base-ref: '0000000000000000000000000000000000000000'
+          head-ref: ${{ env.TEST_HEAD_SHA }}
+          paths: |-
+            ^action\.yml$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test -z "${ACTUAL}" || { echo "::error::expected skip to be unset, actual skip='${ACTUAL}'"; exit 1; }
+
+  skip-checkout:
+    name: 'skip-checkout: true leaves the repository untouched -> skip=false'
+    runs-on: ubuntu-latest
+    steps:
+      # With `skip-checkout: true` the action neither checks out nor fetches anything,
+      # so every commit the diff needs must already be in the repository prepared here.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./
+        id: paths-filter
+        with:
+          skip-checkout: 'true'
+          before: ${{ env.TEST_BASE_SHA }}
+          after: ${{ env.TEST_HEAD_SHA }}
+          base-ref: ${{ env.TEST_BASE_SHA }}
+          head-ref: ${{ env.TEST_HEAD_SHA }}
+          paths: |-
+            ^action\.yml$
+      - name: assert
+        env:
+          ACTUAL: ${{ steps.paths-filter.outputs.skip }}
+        run: |
+          test "${ACTUAL}" = 'false' || { echo "::error::expected skip='false', actual skip='${ACTUAL}'"; exit 1; }
